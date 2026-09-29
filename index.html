@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Bingo 2026</title>
+    <title>Bingo</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -104,6 +104,39 @@
         color: var(--ink-soft);
         font-size: 15px;
         line-height: 1.55;
+      }
+
+      .tabs {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 22px;
+        flex-wrap: wrap;
+      }
+
+      .tab {
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--ink-soft);
+        background: rgba(255, 255, 255, 0.6);
+        border: 1px solid var(--line);
+        padding: 8px 20px;
+        border-radius: 999px;
+        cursor: pointer;
+        transition:
+          background 0.18s ease,
+          color 0.18s ease;
+      }
+
+      .tab:hover {
+        background: #fff;
+      }
+
+      .tab[aria-selected="true"] {
+        color: #fff;
+        background: var(--accent);
+        border-color: var(--accent);
       }
 
       .toolbar {
@@ -294,11 +327,7 @@
         content: "";
         position: absolute;
         inset: 0;
-        background: linear-gradient(
-          to top,
-          rgba(43, 29, 42, 0.7),
-          rgba(43, 29, 42, 0.05) 65%
-        );
+        background: rgba(255, 255, 255, 0.7);
       }
 
       .cell.done.has-photo::before {
@@ -311,6 +340,9 @@
 
       .cell.has-photo .text {
         position: relative;
+      }
+
+      .cell.done.has-photo .text {
         color: #fff;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
       }
@@ -502,12 +534,14 @@
     <div class="wrap">
       <header>
         <p class="eyebrow">things to happen this year</p>
-        <h1>Bingo <span class="year">2026</span></h1>
+        <h1>Bingo <span class="year" id="yearTitle">2026</span></h1>
         <p class="subtitle">
           Twenty-five things to chase this year. Click any tile to mark it
           done. Double-click to edit.
         </p>
       </header>
+
+      <div class="tabs" id="tabs" role="tablist"></div>
 
       <div class="toolbar">
         <div class="progress" aria-label="Progress">
@@ -561,7 +595,28 @@
     <script>
       const GRID_SIZE = 25;
       const FREE_INDEX = 12;
-      const STORAGE_KEY = "bingo-2026-v2";
+      const YEARS_KEY = "bingo-years";
+      const ACTIVE_YEAR_KEY = "bingo-active-year";
+      const FIRST_YEAR = "2026";
+
+      let years = loadYears();
+      let year = loadActiveYear();
+
+      function loadYears() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(YEARS_KEY));
+          if (Array.isArray(parsed) && parsed.length) return parsed;
+        } catch (e) {}
+        return [FIRST_YEAR];
+      }
+
+      function loadActiveYear() {
+        const saved = localStorage.getItem(ACTIVE_YEAR_KEY);
+        return years.includes(saved) ? saved : years[0];
+      }
+
+      const storageKey = () => `bingo-${year}-v2`;
+      const photoDbName = () => `bingo-${year}-photos`;
 
       const WINNING_LINES = (() => {
         const lines = [];
@@ -608,28 +663,37 @@
         "Go to a martial art class",
       ];
 
-      const state = load();
+      let state = load();
 
-      function load() {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed.cells) && parsed.cells.length === GRID_SIZE) {
-              return parsed;
-            }
-          }
-        } catch (e) {}
+      function freshState() {
+        const texts =
+          year === FIRST_YEAR
+            ? defaultItems
+            : Array.from({ length: GRID_SIZE }, (_, i) =>
+                i === FREE_INDEX ? "Bingo day ✦" : "",
+              );
         return {
-          cells: defaultItems.map((text) => ({ text, done: false })),
+          cells: texts.map((text) => ({ text, done: false })),
           claimedLines: [],
         };
       }
 
-      if (!Array.isArray(state.claimedLines)) state.claimedLines = [];
+      function load() {
+        try {
+          const raw = localStorage.getItem(storageKey());
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed.cells) && parsed.cells.length === GRID_SIZE) {
+              if (!Array.isArray(parsed.claimedLines)) parsed.claimedLines = [];
+              return parsed;
+            }
+          }
+        } catch (e) {}
+        return freshState();
+      }
 
       function save() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(storageKey(), JSON.stringify(state));
       }
 
       const grid = document.getElementById("grid");
@@ -638,14 +702,13 @@
       const resetBtn = document.getElementById("resetBtn");
       const celebrate = document.getElementById("celebrate");
 
-      const DB_NAME = "bingo-2026-photos";
       const PHOTO_STORE = "photos";
       const PHOTO_MAX_EDGE = 900;
       const photoUrls = new Map();
 
       function openDb() {
         return new Promise((resolve, reject) => {
-          const req = indexedDB.open(DB_NAME, 1);
+          const req = indexedDB.open(photoDbName(), 1);
           req.onupgradeneeded = () => req.result.createObjectStore(PHOTO_STORE);
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
@@ -985,9 +1048,7 @@
 
       resetBtn.addEventListener("click", async () => {
         if (!confirm("Reset the whole board? This clears your progress, notes and photos.")) return;
-        localStorage.removeItem(STORAGE_KEY);
-        state.cells = defaultItems.map((text) => ({ text, done: false }));
-        state.claimedLines = [];
+        state = freshState();
         [...photoUrls.keys()].forEach(clearPhotoUrl);
         try {
           await writePhotos((store) => store.clear());
@@ -996,11 +1057,63 @@
         render();
       });
 
-      loadPhotos().then((blobs) => {
+      const tabsEl = document.getElementById("tabs");
+      const yearTitle = document.getElementById("yearTitle");
+
+      function renderTabs() {
+        tabsEl.innerHTML = "";
+        years.forEach((y) => {
+          const tab = document.createElement("button");
+          tab.className = "tab";
+          tab.type = "button";
+          tab.setAttribute("role", "tab");
+          tab.setAttribute("aria-selected", y === year);
+          tab.textContent = y;
+          tab.addEventListener("click", () => switchYear(y));
+          tabsEl.appendChild(tab);
+        });
+        const add = document.createElement("button");
+        add.className = "tab";
+        add.type = "button";
+        add.textContent = "+";
+        add.title = "Add a year";
+        add.addEventListener("click", addYear);
+        tabsEl.appendChild(add);
+      }
+
+      function addYear() {
+        const suggestion = String(Math.max(...years.map(Number)) + 1);
+        const input = prompt("Which year?", suggestion);
+        const y = input && input.trim();
+        if (!y) return;
+        if (!/^\d{4}$/.test(y)) {
+          alert("Enter a 4-digit year, like 2028.");
+          return;
+        }
+        if (!years.includes(y)) {
+          years.push(y);
+          years.sort();
+          localStorage.setItem(YEARS_KEY, JSON.stringify(years));
+        }
+        switchYear(y);
+      }
+
+      async function switchYear(y) {
+        year = y;
+        localStorage.setItem(ACTIVE_YEAR_KEY, y);
+        state = load();
+        [...photoUrls.keys()].forEach(clearPhotoUrl);
+        yearTitle.textContent = y;
+        document.title = `Bingo ${y}`;
+        renderTabs();
+        render();
+        const blobs = await loadPhotos();
+        if (year !== y) return;
         blobs.forEach((blob, i) => setPhotoUrl(i, blob));
         render();
-        reconcileBingos();
-      });
+      }
+
+      switchYear(year).then(reconcileBingos);
     </script>
   </body>
 </html>
