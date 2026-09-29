@@ -533,10 +533,10 @@
   <body>
     <div class="wrap">
       <header>
-        <p class="eyebrow">things to happen this year</p>
+        <p class="eyebrow">things to chase</p>
         <h1>Bingo <span class="year" id="yearTitle">2026</span></h1>
         <p class="subtitle">
-          Twenty-five things to chase this year. Click any tile to mark it
+          Twenty-five things to chase. Click any tile to mark it
           done. Double-click to edit.
         </p>
       </header>
@@ -1076,23 +1076,17 @@
         add.className = "tab";
         add.type = "button";
         add.textContent = "+";
-        add.title = "Add a year";
+        add.title = "Add a board";
         add.addEventListener("click", addYear);
         tabsEl.appendChild(add);
       }
 
       function addYear() {
-        const suggestion = String(Math.max(...years.map(Number)) + 1);
-        const input = prompt("Which year?", suggestion);
+        const input = prompt("Name your board (a year, or anything, like Ha & Chris)");
         const y = input && input.trim();
         if (!y) return;
-        if (!/^\d{4}$/.test(y)) {
-          alert("Enter a 4-digit year, like 2028.");
-          return;
-        }
         if (!years.includes(y)) {
           years.push(y);
-          years.sort();
           localStorage.setItem(YEARS_KEY, JSON.stringify(years));
         }
         switchYear(y);
