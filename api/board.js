@@ -1,62 +1,87 @@
 import {
-  GRID_SIZE,
-  boardIdFrom,
-  isTabName,
-  readBoard,
-  writeBoard,
+  isId,
+  param,
+  cleanName,
   cleanCell,
+  cleanCells,
+  boardPath,
+  legacyBoardPath,
+  readJson,
+  writeJson,
+  spaceHash,
+  publicBoard,
   deleteDroppedPhotos,
-  withCors,
+  deleteBoard,
+  GRID_SIZE,
+  reply,
   preflight,
 } from "./_board.js";
 
-const NO_STORE = { "Cache-Control": "no-store" };
-
 export const OPTIONS = preflight;
 
+/** Returns the board, or 404 with `legacy: true` if it only exists in the old multi-tab format. */
 export async function GET(request) {
-  const id = boardIdFrom(request);
-  if (!id) return withCors(Response.json({ error: "Bad board id" }, { status: 400 }));
-  return withCors(Response.json(await readBoard(id), { headers: NO_STORE }));
+  const id = param(request, "id");
+  if (!id) return reply({ error: "Bad board id" }, 400);
+  const board = await readJson(boardPath(id));
+  if (board) return reply(publicBoard(id, board, param(request, "space")));
+  const legacy = await readJson(legacyBoardPath(id));
+  return reply({ error: "Not found", legacy: !!legacy }, 404);
 }
 
 /**
- * Body: { year, cells: { [index]: cell } } merges the given cells into that tab.
- * With `replace: true`, `cells` must be a full array and replaces the tab.
- * With `remove: true`, deletes the tab and its photos.
- * Returns the whole board after the write.
+ * Body, one of:
+ *   { create: { name }, space }       makes an empty board owned by `space`
+ *   { cells: { [index]: cell } }      merges the given tiles
+ *   { cells: [...], replace: true }   replaces every tile
+ *   { delete: true, space }           deletes the board, only for its creator
+ * Returns the board after the write.
  */
 export async function POST(request) {
-  const id = boardIdFrom(request);
-  if (!id) return withCors(Response.json({ error: "Bad board id" }, { status: 400 }));
-
+  const id = param(request, "id");
+  if (!id) return reply({ error: "Bad board id" }, 400);
   const body = await request.json().catch(() => null);
-  const hasCells = body?.cells && typeof body.cells === "object";
-  if (!body || !isTabName(body.year) || (!hasCells && body.remove !== true)) {
-    return withCors(Response.json({ error: "Bad body" }, { status: 400 }));
+  if (!body || typeof body !== "object" || "year" in body) {
+    return reply({ error: "Bad body — reload the page" }, 400);
   }
 
-  const board = await readBoard(id);
-  const before = Object.hasOwn(board.years, body.year) ? board.years[body.year].cells : [];
+  const existing = await readJson(boardPath(id));
 
-  if (body.remove === true) {
-    delete board.years[body.year];
-    await writeBoard(id, board);
-    await deleteDroppedPhotos(before, []);
-    return withCors(Response.json(board, { headers: NO_STORE }));
+  if (body.create) {
+    const name = cleanName(body.create.name);
+    if (existing) return reply({ error: "Board exists" }, 409);
+    if (!name || !isId(body.space)) {
+      return reply({ error: "Bad name or space" }, 400);
+    }
+    const board = { name, creator: spaceHash(body.space), cells: cleanCells(id, body.create.cells) };
+    await writeJson(boardPath(id), board);
+    return reply(publicBoard(id, board, body.space));
   }
-  const after = body.replace ? [] : [...before];
-  if (!body.replace) after.length = GRID_SIZE;
 
-  for (const [key, cell] of Object.entries(body.cells)) {
-    const i = Number(key);
-    if (!Number.isInteger(i) || i < 0 || i >= GRID_SIZE) continue;
-    after[i] = cleanCell(id, cell);
+  if (!existing) return reply({ error: "Not found" }, 404);
+
+  if (body.delete === true) {
+    if (!isId(body.space) || existing.creator !== spaceHash(body.space)) {
+      return reply({ error: "Only the board's creator can delete it" }, 403);
+    }
+    await deleteBoard(id);
+    return reply({ deleted: true });
   }
-  const cells = Array.from({ length: GRID_SIZE }, (_, i) => after[i] ?? cleanCell(id, {}));
 
-  board.years[body.year] = { cells };
-  await writeBoard(id, board);
-  await deleteDroppedPhotos(before, cells);
-  return withCors(Response.json(board, { headers: NO_STORE }));
+  if (!body.cells || typeof body.cells !== "object") return reply({ error: "Bad body" }, 400);
+  const before = existing.cells;
+  let after;
+  if (body.replace === true) {
+    after = cleanCells(id, body.cells);
+  } else {
+    after = [...before];
+    for (const [key, cell] of Object.entries(body.cells)) {
+      const i = Number(key);
+      if (Number.isInteger(i) && i >= 0 && i < GRID_SIZE) after[i] = cleanCell(id, cell);
+    }
+  }
+  const board = { ...existing, cells: after };
+  await writeJson(boardPath(id), board);
+  await deleteDroppedPhotos(before, after);
+  return reply(publicBoard(id, board, body.space));
 }

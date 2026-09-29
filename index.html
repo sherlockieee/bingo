@@ -556,7 +556,8 @@
         </div>
         <div class="toolbar-actions">
           <button class="btn" id="shareBtn">Share link</button>
-          <button class="btn" id="newBoardBtn">New board</button>
+          <button class="btn" id="devicesBtn">My other devices</button>
+          <button class="btn danger" id="deleteBtn">Delete board</button>
           <button class="btn danger" id="resetBtn">Reset board</button>
         </div>
       </div>
@@ -606,26 +607,27 @@
     <script>
       const GRID_SIZE = 25;
       const FREE_INDEX = 12;
-      const ACTIVE_YEAR_KEY = "bingo-active-year";
-      const HOME_BOARD_KEY = "bingo-board-id";
+      const ACTIVE_BOARD_KEY = "bingo-active-board";
+      const SPACE_KEY = "bingo-space-id";
+      const V1_HOME_KEY = "bingo-board-id";
       const LEGACY_YEARS_KEY = "bingo-years";
       const FIRST_YEAR = "2026";
       const POLL_MS = 15000;
       const MAX_TAB_NAME = 40;
-      const NEW_BOARD_TAB_KEY = "bingo-new-board-tab";
       const API_BASE =
         location.hostname === "sherlockieee.github.io" ? "https://bingo-five-dun.vercel.app" : "";
 
-      let boardId = null;
-      let board = { years: {} };
-      let years = [];
-      let year = null;
+      let spaceId = null;
+      let boards = [];
+      let activeId = null;
       let state = null;
 
-      const cacheKey = () => `bingo-cache-${boardId}`;
-      const claimedKey = () => `bingo-claimed-${boardId}-${year}`;
+      const cacheKey = () => `bingo-space-cache-${spaceId}`;
+      const claimedKey = (id) => `bingo-claimed-${id}`;
       const legacyStateKey = (y) => `bingo-${y}-v2`;
       const legacyPhotoDbName = (y) => `bingo-${y}-photos`;
+      const activeBoard = () => boards.find((b) => b.id === activeId);
+      const currentYear = () => String(new Date().getFullYear());
 
       const WINNING_LINES = (() => {
         const lines = [];
@@ -691,58 +693,66 @@
         }
       }
 
-      function stateFor(y) {
-        const saved = board.years[y];
-        const claimed = readJson(`bingo-claimed-${boardId}-${y}`);
+      function stateFor(board) {
+        const claimed = readJson(claimedKey(board.id));
         return {
-          cells: saved ? structuredClone(saved.cells) : blankCells(),
+          cells: structuredClone(board.cells),
           claimedLines: Array.isArray(claimed) ? claimed : [],
         };
       }
 
       function saveClaimed() {
-        localStorage.setItem(claimedKey(), JSON.stringify(state.claimedLines));
+        localStorage.setItem(claimedKey(activeId), JSON.stringify(state.claimedLines));
       }
 
-      async function api(path, options = {}) {
-        const sep = path.includes("?") ? "&" : "?";
-        const res = await fetch(`${API_BASE}/api/${path}${sep}id=${boardId}`, options);
-        if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+      async function api(path, params, options = {}) {
+        const query = new URLSearchParams(params).toString();
+        const res = await fetch(`${API_BASE}/api/${path}?${query}`, options);
+        if (!res.ok) {
+          const error = new Error(`${path} failed: ${res.status}`);
+          error.status = res.status;
+          throw error;
+        }
         return res.json();
       }
 
-      function postCells(y, cells, replace = false) {
-        return api("board", {
+      const postJson = (path, params, body) =>
+        api(path, params, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ year: y, cells, replace }),
+          body: JSON.stringify(body),
         });
-      }
 
-      async function uploadPhoto(blob) {
-        const { path } = await api("photo", {
-          method: "POST",
-          headers: { "Content-Type": "image/jpeg" },
-          body: blob,
-        });
+      const postBoard = (id, body) => postJson("board", { id }, { ...body, space: spaceId });
+      const postSpace = (body) => postJson("space", { space: spaceId }, body);
+      const fetchSpace = () => api("space", { space: spaceId });
+
+      async function uploadPhoto(boardId, blob) {
+        const { path } = await api(
+          "photo",
+          { id: boardId },
+          { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob },
+        );
         return path;
       }
 
       const photoSrc = (path) =>
-        `${API_BASE}/api/photo?id=${boardId}&path=${encodeURIComponent(path)}`;
+        `${API_BASE}/api/photo?id=${activeId}&path=${encodeURIComponent(path)}`;
 
       let writeChain = Promise.resolve();
       let writesInFlight = 0;
 
       /** Queues a write so this device's saves reach the server one at a time, in order. */
-      function queueWrite(y, cells, replace = false) {
+      function queueWrite(id, body) {
         writesInFlight++;
         setStatus("saving…");
-        const snapshot = structuredClone(cells);
+        const snapshot = structuredClone(body);
         writeChain = writeChain.then(async () => {
           try {
-            const saved = await postCells(y, snapshot, replace);
-            if (writesInFlight === 1) applyBoard(saved);
+            const saved = await postBoard(id, snapshot);
+            if (writesInFlight === 1) {
+              applySpace({ boards: boards.map((b) => (b.id === saved.id ? saved : b)) });
+            }
             setStatus("synced");
           } catch (e) {
             setStatus("couldn't save — check your connection");
@@ -755,12 +765,12 @@
 
       function saveCell(i) {
         saveClaimed();
-        return queueWrite(year, { [i]: state.cells[i] });
+        return queueWrite(activeId, { cells: { [i]: state.cells[i] } });
       }
 
-      function saveYear() {
+      function saveAllCells() {
         saveClaimed();
-        return queueWrite(year, state.cells, true);
+        return queueWrite(activeId, { cells: state.cells, replace: true });
       }
 
       const grid = document.getElementById("grid");
@@ -1065,7 +1075,7 @@
         const { i, newPhoto, removePhoto } = editing;
         const cell = state.cells[i];
         try {
-          if (newPhoto) cell.photo = await uploadPhoto(newPhoto);
+          if (newPhoto) cell.photo = await uploadPhoto(activeId, newPhoto);
           else if (removePhoto) cell.photo = null;
         } catch (err) {
           alert("Couldn't upload the photo. Check your connection and try again.");
@@ -1083,9 +1093,9 @@
       });
 
       resetBtn.addEventListener("click", () => {
-        if (!confirm("Reset the whole board? This clears progress, notes and photos for everyone with the link.")) return;
+        if (!confirm("Reset this board? This clears progress, notes and photos for everyone with the link.")) return;
         state = { cells: blankCells(), claimedLines: [] };
-        saveYear();
+        saveAllCells();
         render();
       });
 
@@ -1093,7 +1103,8 @@
       const yearTitle = document.getElementById("yearTitle");
       const syncStatus = document.getElementById("syncStatus");
       const shareBtn = document.getElementById("shareBtn");
-      const newBoardBtn = document.getElementById("newBoardBtn");
+      const deleteBtn = document.getElementById("deleteBtn");
+      const devicesBtn = document.getElementById("devicesBtn");
 
       function setStatus(text) {
         syncStatus.textContent = text;
@@ -1101,14 +1112,14 @@
 
       function renderTabs() {
         tabsEl.innerHTML = "";
-        years.forEach((y) => {
+        boards.forEach((b) => {
           const tab = document.createElement("button");
           tab.className = "tab";
           tab.type = "button";
           tab.setAttribute("role", "tab");
-          tab.setAttribute("aria-selected", y === year);
-          tab.textContent = y;
-          tab.addEventListener("click", () => switchYear(y));
+          tab.setAttribute("aria-selected", b.id === activeId);
+          tab.textContent = b.name;
+          tab.addEventListener("click", () => switchBoard(b.id));
           tabsEl.appendChild(tab);
         });
         const add = document.createElement("button");
@@ -1116,80 +1127,62 @@
         add.type = "button";
         add.textContent = "+";
         add.title = "Add a board";
-        add.addEventListener("click", addYear);
+        add.addEventListener("click", addBoard);
         tabsEl.appendChild(add);
       }
 
-      function addYear() {
-        const input = prompt("Name your board (a year, or anything, like Ha & Chris)");
-        const y = input && input.trim();
-        if (!y) return;
-        if (y.length > MAX_TAB_NAME) {
-          alert(`Keep the name under ${MAX_TAB_NAME} characters.`);
-          return;
-        }
-        if (years.includes(y)) {
-          switchYear(y);
-          return;
-        }
-        years.push(y);
-        switchYear(y);
-        saveYear();
+      function pickBoard() {
+        const saved = localStorage.getItem(ACTIVE_BOARD_KEY);
+        return boards.some((b) => b.id === saved) ? saved : (boards[0]?.id ?? null);
       }
 
-      function pickYear() {
-        const saved = localStorage.getItem(ACTIVE_YEAR_KEY);
-        if (years.includes(saved)) return saved;
-        return years[0] ?? String(new Date().getFullYear());
-      }
-
-      function showYear() {
-        state = stateFor(year);
-        reconcileBingos();
-        yearTitle.textContent = year;
-        document.title = `Bingo ${year}`;
+      function showBoard() {
+        const board = activeBoard();
         renderTabs();
+        if (!board) return;
+        state = stateFor(board);
+        reconcileBingos();
+        yearTitle.textContent = board.name;
+        document.title = `Bingo ${board.name}`;
+        deleteBtn.textContent = board.mine ? "Delete board" : "Remove from my tabs";
+        history.replaceState(null, "", `#b=${board.id}`);
         render();
       }
 
-      function switchYear(y) {
-        year = y;
-        localStorage.setItem(ACTIVE_YEAR_KEY, y);
-        showYear();
+      function switchBoard(id) {
+        activeId = id;
+        localStorage.setItem(ACTIVE_BOARD_KEY, id);
+        showBoard();
       }
 
       const isEditing = () => detail.open || !!grid.querySelector("textarea");
 
-      function applyBoard(next) {
+      function applySpace(next) {
         if (isEditing()) return;
-        if (JSON.stringify(next) === JSON.stringify(board)) return;
-        board = next;
-        localStorage.setItem(cacheKey(), JSON.stringify(board));
-        years = Object.keys(board.years);
-        if (!years.includes(year)) year = pickYear();
-        showYear();
+        const same = JSON.stringify(next.boards) === JSON.stringify(boards);
+        if (same && activeBoard()) return;
+        boards = next.boards;
+        localStorage.setItem(cacheKey(), JSON.stringify(boards));
+        if (!activeBoard()) activeId = pickBoard();
+        showBoard();
       }
 
       async function poll() {
         if (document.hidden || writesInFlight > 0) return;
         try {
-          const next = await api("board");
+          const next = await fetchSpace();
           if (writesInFlight > 0) return;
-          applyBoard(next);
+          applySpace(next);
           setStatus("synced");
         } catch (e) {
           setStatus("offline — showing the last copy this device saw");
         }
       }
 
-      const BOARD_ID = /^[A-Za-z0-9_-]{16,64}$/;
+      const ID = /^[A-Za-z0-9_-]{16,64}$/;
+      const validId = (id) => (id && ID.test(id) ? id : null);
 
-      function boardIdFromHash() {
-        const id = new URLSearchParams(location.hash.slice(1)).get("b");
-        return id && BOARD_ID.test(id) ? id : null;
-      }
-
-      function newBoardId() {
+      function newId() {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         return btoa(String.fromCharCode(...bytes))
           .replace(/\+/g, "-")
@@ -1197,38 +1190,107 @@
           .replace(/=+$/, "");
       }
 
+      /** Makes a board, adds it to this space's tabs and opens it. */
+      async function createBoard(name, cells, id = newId()) {
+        await postBoard(id, { create: { name, cells } });
+        const next = await postSpace({ add: id });
+        activeId = id;
+        localStorage.setItem(ACTIVE_BOARD_KEY, id);
+        applySpace(next);
+      }
+
+      async function addBoard() {
+        const input = prompt("Name your new board (a year, or anything, like Ha & Chris)");
+        const name = input && input.trim().slice(0, MAX_TAB_NAME);
+        if (!name) return;
+        try {
+          await createBoard(name, blankCells());
+        } catch (e) {
+          alert("Couldn't make the board. Check your connection and try again.");
+        }
+      }
+
+      deleteBtn.addEventListener("click", async () => {
+        const board = activeBoard();
+        if (!board) return;
+        const question = board.mine
+          ? `Delete "${board.name}" for everyone? Its tiles, notes and photos go away for anyone with the link. This can't be undone.`
+          : `Remove "${board.name}" from your tabs? It stays for everyone else, and opening its link again brings it back.`;
+        if (!confirm(question)) return;
+        try {
+          if (board.mine) await postBoard(board.id, { delete: true });
+          applySpace(await postSpace({ remove: board.id }));
+          if (!boards.length) await createBoard(currentYear(), blankCells());
+        } catch (e) {
+          alert("Couldn't do that. Check your connection and try again.");
+        }
+      });
+
       const hasLegacyData = () =>
         localStorage.getItem(LEGACY_YEARS_KEY) !== null ||
         localStorage.getItem(legacyStateKey(FIRST_YEAR)) !== null;
 
-      /** Uploads the boards and photos this browser kept before sync into the current board. */
+      /** Uploads the tabs and photos this browser kept before sync, one board per tab. */
       async function migrateLegacyBoards() {
-        const legacyYears = readJson(LEGACY_YEARS_KEY) || [FIRST_YEAR];
-        for (const y of legacyYears) {
-          const saved = readJson(legacyStateKey(y));
-          const photos = await loadLegacyPhotos(y);
-          if (!saved && photos.size === 0 && y !== FIRST_YEAR) continue;
+        const legacyTabs = readJson(LEGACY_YEARS_KEY) || [FIRST_YEAR];
+        for (const name of legacyTabs) {
+          const saved = readJson(legacyStateKey(name));
+          const photos = await loadLegacyPhotos(name);
+          if (!saved && photos.size === 0 && name !== FIRST_YEAR) continue;
+          const id = newId();
           const cells =
             saved?.cells?.length === GRID_SIZE
               ? saved.cells
-              : y === FIRST_YEAR
+              : name === FIRST_YEAR
                 ? cellsFromTexts(defaultItems)
                 : blankCells();
           for (const [i, blob] of photos) {
-            cells[i] = { ...cells[i], photo: await uploadPhoto(blob) };
+            cells[i] = { ...cells[i], photo: await uploadPhoto(id, blob) };
           }
           if (Array.isArray(saved?.claimedLines)) {
-            localStorage.setItem(
-              `bingo-claimed-${boardId}-${y}`,
-              JSON.stringify(saved.claimedLines),
-            );
+            localStorage.setItem(claimedKey(id), JSON.stringify(saved.claimedLines));
           }
-          await postCells(y, cells, true);
+          await postBoard(id, { create: { name: String(name).slice(0, MAX_TAB_NAME), cells } });
+          await postSpace({ add: id });
         }
       }
 
-      shareBtn.addEventListener("click", async () => {
-        const url = location.href;
+      /** Splits an old multi-tab board into one board per tab in this space. Returns false if it doesn't exist. */
+      async function migrateOldBoard(id) {
+        try {
+          await api("migrate", { id, space: spaceId }, { method: "POST" });
+          return true;
+        } catch (e) {
+          if (e.status === 404) return false;
+          throw e;
+        }
+      }
+
+      async function setUpNewSpace() {
+        const oldHome = validId(localStorage.getItem(V1_HOME_KEY));
+        setStatus("moving your boards…");
+        if (oldHome && (await migrateOldBoard(oldHome))) return;
+        if (hasLegacyData()) await migrateLegacyBoards();
+      }
+
+      /** Adds a shared board to this space's tabs. */
+      async function joinBoard(id) {
+        try {
+          await postSpace({ add: id });
+        } catch (e) {
+          if (e.status !== 404) throw e;
+          if (!(await migrateOldBoard(id))) {
+            alert("That board doesn't exist anymore. Someone may have deleted it.");
+          }
+        }
+      }
+
+      async function mergeSpace(otherSpace) {
+        const other = await api("space", { space: otherSpace });
+        for (const b of other.boards) await postSpace({ add: b.id });
+      }
+
+      async function shareUrl(url, copiedLabel, button) {
         const isPhone = matchMedia("(pointer: coarse)").matches;
         if (isPhone && navigator.share) {
           try {
@@ -1237,49 +1299,52 @@
           return;
         }
         await navigator.clipboard.writeText(url);
-        shareBtn.textContent = "Link copied!";
-        setTimeout(() => (shareBtn.textContent = "Share link"), 2000);
-      });
+        const label = button.textContent;
+        button.textContent = copiedLabel;
+        setTimeout(() => (button.textContent = label), 2000);
+      }
 
-      newBoardBtn.addEventListener("click", () => {
-        const input = prompt(
-          "Start a new, empty board with its own link. Name its first tab (like Ha & Chris). Copy this board's link first if you want to come back to it.",
+      shareBtn.addEventListener("click", () =>
+        shareUrl(`${location.origin}${location.pathname}#b=${activeId}`, "Link copied!", shareBtn),
+      );
+
+      devicesBtn.addEventListener("click", () => {
+        const ok = confirm(
+          "This gives you a private link that opens ALL your boards. Open it on your own phone or laptop. Don't send it to anyone else.",
         );
-        const name = input && input.trim().slice(0, MAX_TAB_NAME);
-        if (!name) return;
-        sessionStorage.setItem(NEW_BOARD_TAB_KEY, name);
-        location.hash = `b=${newBoardId()}`;
+        if (ok) {
+          shareUrl(`${location.origin}${location.pathname}#s=${spaceId}`, "Copied — keep it private", devicesBtn);
+        }
       });
 
       window.addEventListener("hashchange", () => location.reload());
 
       async function start() {
-        const linked = boardIdFromHash();
-        const home = localStorage.getItem(HOME_BOARD_KEY);
-        boardId = linked || home || newBoardId();
-        history.replaceState(null, "", `#b=${boardId}`);
+        const params = new URLSearchParams(location.hash.slice(1));
+        const linkedSpace = validId(params.get("s"));
+        const linkedBoard = validId(params.get("b"));
+        const previousSpace = validId(localStorage.getItem(SPACE_KEY));
+        spaceId = linkedSpace || previousSpace || newId();
 
         const cached = readJson(cacheKey());
-        if (cached?.years) board = cached;
-        years = Object.keys(board.years);
-        year = pickYear();
-        showYear();
+        if (Array.isArray(cached)) boards = cached;
+        activeId = linkedBoard || pickBoard();
+        showBoard();
 
         try {
-          let fresh = await api("board");
-          if (!Object.keys(fresh.years).length) {
-            if (!linked && !home && hasLegacyData()) {
-              setStatus("uploading this browser's boards…");
-              await migrateLegacyBoards();
-            } else {
-              year = sessionStorage.getItem(NEW_BOARD_TAB_KEY) || year;
-              sessionStorage.removeItem(NEW_BOARD_TAB_KEY);
-              await postCells(year, blankCells(), true);
-            }
-            fresh = await api("board");
+          if (linkedSpace && previousSpace && previousSpace !== linkedSpace) {
+            await mergeSpace(previousSpace);
           }
-          if (!home) localStorage.setItem(HOME_BOARD_KEY, boardId);
-          applyBoard(fresh);
+          if (!linkedSpace && !previousSpace) await setUpNewSpace();
+          if (linkedBoard) await joinBoard(linkedBoard);
+          let next = await fetchSpace();
+          if (!next.boards.length) {
+            await createBoard(currentYear(), blankCells());
+            next = await fetchSpace();
+          }
+          localStorage.setItem(SPACE_KEY, spaceId);
+          if (linkedBoard) localStorage.setItem(ACTIVE_BOARD_KEY, linkedBoard);
+          applySpace(next);
           setStatus("synced");
         } catch (e) {
           setStatus("offline — showing the last copy this device saw");
