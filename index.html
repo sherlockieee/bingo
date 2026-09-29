@@ -612,6 +612,7 @@
       const FIRST_YEAR = "2026";
       const POLL_MS = 15000;
       const MAX_TAB_NAME = 40;
+      const NEW_BOARD_TAB_KEY = "bingo-new-board-tab";
       const API_BASE =
         location.hostname === "sherlockieee.github.io" ? "https://bingo-five-dun.vercel.app" : "";
 
@@ -1205,13 +1206,15 @@
         const legacyYears = readJson(LEGACY_YEARS_KEY) || [FIRST_YEAR];
         for (const y of legacyYears) {
           const saved = readJson(legacyStateKey(y));
+          const photos = await loadLegacyPhotos(y);
+          if (!saved && photos.size === 0 && y !== FIRST_YEAR) continue;
           const cells =
             saved?.cells?.length === GRID_SIZE
               ? saved.cells
               : y === FIRST_YEAR
                 ? cellsFromTexts(defaultItems)
                 : blankCells();
-          for (const [i, blob] of await loadLegacyPhotos(y)) {
+          for (const [i, blob] of photos) {
             cells[i] = { ...cells[i], photo: await uploadPhoto(blob) };
           }
           if (Array.isArray(saved?.claimedLines)) {
@@ -1238,10 +1241,13 @@
       });
 
       newBoardBtn.addEventListener("click", () => {
-        const ok = confirm(
-          "Start a new, empty board with its own link? Copy this board's link first if you want to come back to it.",
+        const input = prompt(
+          "Start a new, empty board with its own link. Name its first tab (like Ha & Chris). Copy this board's link first if you want to come back to it.",
         );
-        if (ok) location.hash = `b=${newBoardId()}`;
+        const name = input && input.trim().slice(0, MAX_TAB_NAME);
+        if (!name) return;
+        sessionStorage.setItem(NEW_BOARD_TAB_KEY, name);
+        location.hash = `b=${newBoardId()}`;
       });
 
       window.addEventListener("hashchange", () => location.reload());
@@ -1265,6 +1271,8 @@
               setStatus("uploading this browser's boards…");
               await migrateLegacyBoards();
             } else {
+              year = sessionStorage.getItem(NEW_BOARD_TAB_KEY) || year;
+              sessionStorage.removeItem(NEW_BOARD_TAB_KEY);
               await postCells(year, blankCells(), true);
             }
             fresh = await api("board");
