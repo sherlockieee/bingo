@@ -205,6 +205,12 @@
         background: #fff;
       }
 
+      .toolbar-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
       .btn.danger:hover {
         background: var(--accent);
         color: #fff;
@@ -548,14 +554,19 @@
           <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
           <span class="progress-text" id="progressText">0 / 25</span>
         </div>
-        <button class="btn danger" id="resetBtn">Reset board</button>
+        <div class="toolbar-actions">
+          <button class="btn" id="shareBtn">Share link</button>
+          <button class="btn" id="newBoardBtn">New board</button>
+          <button class="btn danger" id="resetBtn">Reset board</button>
+        </div>
       </div>
 
       <div class="grid" id="grid"></div>
 
       <p class="hint">
         <kbd>click</kbd> to toggle done · <kbd>double-click</kbd> to rename ·
-        <kbd>✎</kbd> to add a photo or note · saved in this browser
+        <kbd>✎</kbd> to add a photo or note ·
+        <span id="syncStatus">loading…</span>
       </p>
     </div>
 
@@ -595,28 +606,25 @@
     <script>
       const GRID_SIZE = 25;
       const FREE_INDEX = 12;
-      const YEARS_KEY = "bingo-years";
       const ACTIVE_YEAR_KEY = "bingo-active-year";
+      const HOME_BOARD_KEY = "bingo-board-id";
+      const LEGACY_YEARS_KEY = "bingo-years";
       const FIRST_YEAR = "2026";
+      const POLL_MS = 15000;
+      const MAX_TAB_NAME = 40;
+      const API_BASE =
+        location.hostname === "sherlockieee.github.io" ? "https://bingo-five-dun.vercel.app" : "";
 
-      let years = loadYears();
-      let year = loadActiveYear();
+      let boardId = null;
+      let board = { years: {} };
+      let years = [];
+      let year = null;
+      let state = null;
 
-      function loadYears() {
-        try {
-          const parsed = JSON.parse(localStorage.getItem(YEARS_KEY));
-          if (Array.isArray(parsed) && parsed.length) return parsed;
-        } catch (e) {}
-        return [FIRST_YEAR];
-      }
-
-      function loadActiveYear() {
-        const saved = localStorage.getItem(ACTIVE_YEAR_KEY);
-        return years.includes(saved) ? saved : years[0];
-      }
-
-      const storageKey = () => `bingo-${year}-v2`;
-      const photoDbName = () => `bingo-${year}-photos`;
+      const cacheKey = () => `bingo-cache-${boardId}`;
+      const claimedKey = () => `bingo-claimed-${boardId}-${year}`;
+      const legacyStateKey = (y) => `bingo-${y}-v2`;
+      const legacyPhotoDbName = (y) => `bingo-${y}-photos`;
 
       const WINNING_LINES = (() => {
         const lines = [];
@@ -663,37 +671,95 @@
         "Go to a martial art class",
       ];
 
-      let state = load();
+      const cellsFromTexts = (texts) =>
+        texts.map((text) => ({ text, done: false, note: "", photo: null }));
 
-      function freshState() {
-        const texts =
-          year === FIRST_YEAR
-            ? defaultItems
-            : Array.from({ length: GRID_SIZE }, (_, i) =>
-                i === FREE_INDEX ? "Bingo day ✦" : "",
-              );
+      function blankCells() {
+        return cellsFromTexts(
+          Array.from({ length: GRID_SIZE }, (_, i) =>
+            i === FREE_INDEX ? "Bingo day ✦" : "",
+          ),
+        );
+      }
+
+      function readJson(key) {
+        try {
+          return JSON.parse(localStorage.getItem(key));
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function stateFor(y) {
+        const saved = board.years[y];
+        const claimed = readJson(`bingo-claimed-${boardId}-${y}`);
         return {
-          cells: texts.map((text) => ({ text, done: false })),
-          claimedLines: [],
+          cells: saved ? structuredClone(saved.cells) : blankCells(),
+          claimedLines: Array.isArray(claimed) ? claimed : [],
         };
       }
 
-      function load() {
-        try {
-          const raw = localStorage.getItem(storageKey());
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed.cells) && parsed.cells.length === GRID_SIZE) {
-              if (!Array.isArray(parsed.claimedLines)) parsed.claimedLines = [];
-              return parsed;
-            }
-          }
-        } catch (e) {}
-        return freshState();
+      function saveClaimed() {
+        localStorage.setItem(claimedKey(), JSON.stringify(state.claimedLines));
       }
 
-      function save() {
-        localStorage.setItem(storageKey(), JSON.stringify(state));
+      async function api(path, options = {}) {
+        const sep = path.includes("?") ? "&" : "?";
+        const res = await fetch(`${API_BASE}/api/${path}${sep}id=${boardId}`, options);
+        if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+        return res.json();
+      }
+
+      function postCells(y, cells, replace = false) {
+        return api("board", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year: y, cells, replace }),
+        });
+      }
+
+      async function uploadPhoto(blob) {
+        const { path } = await api("photo", {
+          method: "POST",
+          headers: { "Content-Type": "image/jpeg" },
+          body: blob,
+        });
+        return path;
+      }
+
+      const photoSrc = (path) =>
+        `${API_BASE}/api/photo?id=${boardId}&path=${encodeURIComponent(path)}`;
+
+      let writeChain = Promise.resolve();
+      let writesInFlight = 0;
+
+      /** Queues a write so this device's saves reach the server one at a time, in order. */
+      function queueWrite(y, cells, replace = false) {
+        writesInFlight++;
+        setStatus("saving…");
+        const snapshot = structuredClone(cells);
+        writeChain = writeChain.then(async () => {
+          try {
+            const saved = await postCells(y, snapshot, replace);
+            if (writesInFlight === 1) applyBoard(saved);
+            setStatus("synced");
+          } catch (e) {
+            setStatus("couldn't save — check your connection");
+          } finally {
+            writesInFlight--;
+          }
+        });
+        return writeChain;
+      }
+
+      function saveCell(i) {
+        saveClaimed();
+        return queueWrite(year, { [i]: state.cells[i] });
+      }
+
+      function saveYear() {
+        saveClaimed();
+        return queueWrite(year, state.cells, true);
       }
 
       const grid = document.getElementById("grid");
@@ -702,24 +768,20 @@
       const resetBtn = document.getElementById("resetBtn");
       const celebrate = document.getElementById("celebrate");
 
-      const PHOTO_STORE = "photos";
+      const LEGACY_PHOTO_STORE = "photos";
       const PHOTO_MAX_EDGE = 900;
-      const photoUrls = new Map();
 
-      function openDb() {
-        return new Promise((resolve, reject) => {
-          const req = indexedDB.open(photoDbName(), 1);
-          req.onupgradeneeded = () => req.result.createObjectStore(PHOTO_STORE);
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = () => reject(req.error);
-        });
-      }
-
-      async function loadPhotos() {
+      /** Returns the photos this browser stored for `y` before sync, keyed by tile index. */
+      async function loadLegacyPhotos(y) {
         try {
-          const db = await openDb();
+          const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open(legacyPhotoDbName(y), 1);
+            req.onupgradeneeded = () => req.result.createObjectStore(LEGACY_PHOTO_STORE);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
           return await new Promise((resolve, reject) => {
-            const store = db.transaction(PHOTO_STORE).objectStore(PHOTO_STORE);
+            const store = db.transaction(LEGACY_PHOTO_STORE).objectStore(LEGACY_PHOTO_STORE);
             const keys = store.getAllKeys();
             const blobs = store.getAll();
             blobs.onsuccess = () =>
@@ -729,27 +791,6 @@
         } catch (e) {
           return new Map();
         }
-      }
-
-      async function writePhotos(fn) {
-        const db = await openDb();
-        return new Promise((resolve, reject) => {
-          const tx = db.transaction(PHOTO_STORE, "readwrite");
-          fn(tx.objectStore(PHOTO_STORE));
-          tx.oncomplete = resolve;
-          tx.onerror = () => reject(tx.error);
-        });
-      }
-
-      function setPhotoUrl(i, blob) {
-        clearPhotoUrl(i);
-        photoUrls.set(i, URL.createObjectURL(blob));
-      }
-
-      function clearPhotoUrl(i) {
-        const url = photoUrls.get(i);
-        if (url) URL.revokeObjectURL(url);
-        photoUrls.delete(i);
       }
 
       async function downscale(file) {
@@ -772,10 +813,9 @@
           if (i === FREE_INDEX && !cell.done) el.classList.add("free");
           if (cell.done) el.classList.add("done");
           if (cell.note) el.classList.add("has-note");
-          const photoUrl = photoUrls.get(i);
-          if (photoUrl) {
+          if (cell.photo) {
             el.classList.add("has-photo");
-            el.style.backgroundImage = `url("${photoUrl}")`;
+            el.style.backgroundImage = `url("${photoSrc(cell.photo)}")`;
           }
           el.dataset.index = i;
 
@@ -836,7 +876,7 @@
         }
         cell.done = !cell.done;
         const newBingos = reconcileBingos();
-        save();
+        saveCell(i);
         updateCell(i);
         updateProgress();
         if (cell.done) burstFromCell(i);
@@ -892,7 +932,7 @@
           finished = true;
           if (commit) {
             state.cells[i].text = ta.value.trim();
-            save();
+            saveCell(i);
           }
           ta.remove();
           if (textEl) textEl.style.visibility = "";
@@ -984,7 +1024,7 @@
         detailTitle.value = cell.text || "";
         detailDone.checked = !!cell.done;
         detailNote.value = cell.note || "";
-        showPreview(photoUrls.get(i) || null);
+        showPreview(cell.photo ? photoSrc(cell.photo) : null);
         detail.showModal();
       }
 
@@ -1022,43 +1062,41 @@
       detailForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const { i, newPhoto, removePhoto } = editing;
+        const cell = state.cells[i];
         try {
-          if (newPhoto) {
-            await writePhotos((store) => store.put(newPhoto, i));
-            setPhotoUrl(i, newPhoto);
-          } else if (removePhoto) {
-            await writePhotos((store) => store.delete(i));
-            clearPhotoUrl(i);
-          }
+          if (newPhoto) cell.photo = await uploadPhoto(newPhoto);
+          else if (removePhoto) cell.photo = null;
         } catch (err) {
-          alert("Couldn't save the photo in this browser.");
+          alert("Couldn't upload the photo. Check your connection and try again.");
           return;
         }
-        const cell = state.cells[i];
         cell.text = detailTitle.value.trim();
         cell.done = detailDone.checked;
         cell.note = detailNote.value.trim();
         const newBingos = reconcileBingos();
-        save();
-        render();
         detail.close();
+        saveCell(i);
+        render();
         if (cell.done) burstFromCell(i);
         if (newBingos.length > 0) bigCelebrate();
       });
 
-      resetBtn.addEventListener("click", async () => {
-        if (!confirm("Reset the whole board? This clears your progress, notes and photos.")) return;
-        state = freshState();
-        [...photoUrls.keys()].forEach(clearPhotoUrl);
-        try {
-          await writePhotos((store) => store.clear());
-        } catch (e) {}
-        save();
+      resetBtn.addEventListener("click", () => {
+        if (!confirm("Reset the whole board? This clears progress, notes and photos for everyone with the link.")) return;
+        state = { cells: blankCells(), claimedLines: [] };
+        saveYear();
         render();
       });
 
       const tabsEl = document.getElementById("tabs");
       const yearTitle = document.getElementById("yearTitle");
+      const syncStatus = document.getElementById("syncStatus");
+      const shareBtn = document.getElementById("shareBtn");
+      const newBoardBtn = document.getElementById("newBoardBtn");
+
+      function setStatus(text) {
+        syncStatus.textContent = text;
+      }
 
       function renderTabs() {
         tabsEl.innerHTML = "";
@@ -1085,29 +1123,163 @@
         const input = prompt("Name your board (a year, or anything, like Ha & Chris)");
         const y = input && input.trim();
         if (!y) return;
-        if (!years.includes(y)) {
-          years.push(y);
-          localStorage.setItem(YEARS_KEY, JSON.stringify(years));
+        if (y.length > MAX_TAB_NAME) {
+          alert(`Keep the name under ${MAX_TAB_NAME} characters.`);
+          return;
         }
+        if (years.includes(y)) {
+          switchYear(y);
+          return;
+        }
+        years.push(y);
         switchYear(y);
+        saveYear();
       }
 
-      async function switchYear(y) {
-        year = y;
-        localStorage.setItem(ACTIVE_YEAR_KEY, y);
-        state = load();
-        [...photoUrls.keys()].forEach(clearPhotoUrl);
-        yearTitle.textContent = y;
-        document.title = `Bingo ${y}`;
+      function pickYear() {
+        const saved = localStorage.getItem(ACTIVE_YEAR_KEY);
+        if (years.includes(saved)) return saved;
+        return years[0] ?? String(new Date().getFullYear());
+      }
+
+      function showYear() {
+        state = stateFor(year);
+        reconcileBingos();
+        yearTitle.textContent = year;
+        document.title = `Bingo ${year}`;
         renderTabs();
         render();
-        const blobs = await loadPhotos();
-        if (year !== y) return;
-        blobs.forEach((blob, i) => setPhotoUrl(i, blob));
-        render();
       }
 
-      switchYear(year).then(reconcileBingos);
+      function switchYear(y) {
+        year = y;
+        localStorage.setItem(ACTIVE_YEAR_KEY, y);
+        showYear();
+      }
+
+      const isEditing = () => detail.open || !!grid.querySelector("textarea");
+
+      function applyBoard(next) {
+        if (isEditing()) return;
+        if (JSON.stringify(next) === JSON.stringify(board)) return;
+        board = next;
+        localStorage.setItem(cacheKey(), JSON.stringify(board));
+        years = Object.keys(board.years);
+        if (!years.includes(year)) year = pickYear();
+        showYear();
+      }
+
+      async function poll() {
+        if (document.hidden || writesInFlight > 0) return;
+        try {
+          const next = await api("board");
+          if (writesInFlight > 0) return;
+          applyBoard(next);
+          setStatus("synced");
+        } catch (e) {
+          setStatus("offline — showing the last copy this device saw");
+        }
+      }
+
+      const BOARD_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+      function boardIdFromHash() {
+        const id = new URLSearchParams(location.hash.slice(1)).get("b");
+        return id && BOARD_ID.test(id) ? id : null;
+      }
+
+      function newBoardId() {
+        const bytes = crypto.getRandomValues(new Uint8Array(16));
+        return btoa(String.fromCharCode(...bytes))
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+      }
+
+      const hasLegacyData = () =>
+        localStorage.getItem(LEGACY_YEARS_KEY) !== null ||
+        localStorage.getItem(legacyStateKey(FIRST_YEAR)) !== null;
+
+      /** Uploads the boards and photos this browser kept before sync into the current board. */
+      async function migrateLegacyBoards() {
+        const legacyYears = readJson(LEGACY_YEARS_KEY) || [FIRST_YEAR];
+        for (const y of legacyYears) {
+          const saved = readJson(legacyStateKey(y));
+          const cells =
+            saved?.cells?.length === GRID_SIZE
+              ? saved.cells
+              : y === FIRST_YEAR
+                ? cellsFromTexts(defaultItems)
+                : blankCells();
+          for (const [i, blob] of await loadLegacyPhotos(y)) {
+            cells[i] = { ...cells[i], photo: await uploadPhoto(blob) };
+          }
+          if (Array.isArray(saved?.claimedLines)) {
+            localStorage.setItem(
+              `bingo-claimed-${boardId}-${y}`,
+              JSON.stringify(saved.claimedLines),
+            );
+          }
+          await postCells(y, cells, true);
+        }
+      }
+
+      shareBtn.addEventListener("click", async () => {
+        const url = location.href;
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: document.title, url });
+          } catch (e) {}
+          return;
+        }
+        await navigator.clipboard.writeText(url);
+        shareBtn.textContent = "Link copied!";
+        setTimeout(() => (shareBtn.textContent = "Share link"), 2000);
+      });
+
+      newBoardBtn.addEventListener("click", () => {
+        const ok = confirm(
+          "Start a new, empty board with its own link? Copy this board's link first if you want to come back to it.",
+        );
+        if (ok) location.hash = `b=${newBoardId()}`;
+      });
+
+      window.addEventListener("hashchange", () => location.reload());
+
+      async function start() {
+        const linked = boardIdFromHash();
+        const home = localStorage.getItem(HOME_BOARD_KEY);
+        boardId = linked || home || newBoardId();
+        history.replaceState(null, "", `#b=${boardId}`);
+
+        const cached = readJson(cacheKey());
+        if (cached?.years) board = cached;
+        years = Object.keys(board.years);
+        year = pickYear();
+        showYear();
+
+        try {
+          let fresh = await api("board");
+          if (!Object.keys(fresh.years).length) {
+            if (!linked && !home && hasLegacyData()) {
+              setStatus("uploading this browser's boards…");
+              await migrateLegacyBoards();
+            } else {
+              await postCells(year, blankCells(), true);
+            }
+            fresh = await api("board");
+          }
+          if (!home) localStorage.setItem(HOME_BOARD_KEY, boardId);
+          applyBoard(fresh);
+          setStatus("synced");
+        } catch (e) {
+          setStatus("offline — showing the last copy this device saw");
+        }
+        setInterval(poll, POLL_MS);
+        document.addEventListener("visibilitychange", poll);
+      }
+
+      start();
     </script>
   </body>
 </html>
