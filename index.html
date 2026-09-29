@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bingo 2026</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-1: #fff5ec;
+        --bg-2: #ffe4d6;
+        --bg-3: #f6d4ff;
+        --ink: #2b1d2a;
+        --ink-soft: #6b5560;
+        --card: #ffffff;
+        --line: rgba(43, 29, 42, 0.08);
+        --accent: #e7546f;
+        --accent-soft: #ffd9e0;
+        --gold: #f4a93b;
+        --done: linear-gradient(135deg, #ff8a9b 0%, #ffb37a 100%);
+        --shadow-sm: 0 1px 2px rgba(43, 29, 42, 0.06),
+          0 4px 12px rgba(43, 29, 42, 0.04);
+        --shadow-md: 0 6px 24px rgba(43, 29, 42, 0.1),
+          0 2px 6px rgba(43, 29, 42, 0.06);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(
+            1200px 600px at 10% -10%,
+            var(--bg-3) 0%,
+            transparent 60%
+          ),
+          radial-gradient(
+            900px 500px at 110% 10%,
+            var(--bg-2) 0%,
+            transparent 55%
+          ),
+          var(--bg-1);
+        background-attachment: fixed;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .wrap {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 56px 24px 80px;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 36px;
+      }
+
+      .eyebrow {
+        font-family: "Fraunces", Georgia, serif;
+        font-style: italic;
+        font-weight: 400;
+        color: var(--accent);
+        letter-spacing: 0.02em;
+        font-size: 18px;
+        margin: 0 0 6px;
+      }
+
+      h1 {
+        font-family: "Fraunces", Georgia, serif;
+        font-weight: 800;
+        font-size: clamp(48px, 8vw, 84px);
+        line-height: 1;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+
+      h1 .year {
+        background: linear-gradient(135deg, #e7546f 0%, #f4a93b 60%, #b66bff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .subtitle {
+        margin: 12px auto 0;
+        max-width: 480px;
+        color: var(--ink-soft);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+        flex-wrap: wrap;
+      }
+
+      .progress {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 8px 14px;
+        border-radius: 999px;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .progress-bar {
+        width: 140px;
+        height: 6px;
+        background: var(--accent-soft);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent), var(--gold));
+        border-radius: 999px;
+        transition: width 0.4s ease;
+      }
+
+      .progress-text {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink-soft);
+        min-width: 64px;
+        text-align: right;
+      }
+
+      .btn {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink);
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 9px 16px;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: var(--shadow-sm);
+        transition:
+          transform 0.12s ease,
+          background 0.18s ease,
+          color 0.18s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+        background: #fff;
+      }
+
+      .btn.danger:hover {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(6px);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 14px;
+        box-shadow: var(--shadow-md);
+      }
+
+      .cell {
+        position: relative;
+        aspect-ratio: 1 / 1;
+        border-radius: 16px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.2s ease,
+          background 0.25s ease;
+        overflow: hidden;
+      }
+
+      .cell:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .cell .text {
+        font-size: clamp(11px, 1.5vw, 14px);
+        line-height: 1.3;
+        font-weight: 500;
+        color: var(--ink);
+        word-break: break-word;
+        max-height: 100%;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 5;
+        -webkit-box-orient: vertical;
+      }
+
+      .cell .text.placeholder {
+        color: var(--ink-soft);
+        font-style: italic;
+        font-weight: 400;
+        opacity: 0.5;
+      }
+
+      .cell.done {
+        background: var(--done);
+        border-color: transparent;
+      }
+
+      .cell.done .text {
+        color: #fff;
+        font-weight: 600;
+      }
+
+      .cell.done::after {
+        content: "✓";
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        font-size: 14px;
+        color: #fff;
+        opacity: 0.85;
+      }
+
+      .cell.free {
+        background: linear-gradient(135deg, #fff7e6 0%, #fce4ff 100%);
+        border-color: transparent;
+      }
+
+      .cell.free .text {
+        font-family: "Fraunces", serif;
+        font-style: italic;
+        font-weight: 600;
+        color: var(--accent);
+        font-size: clamp(13px, 1.7vw, 16px);
+      }
+
+      .cell textarea {
+        position: absolute;
+        inset: 8px;
+        border: none;
+        outline: none;
+        resize: none;
+        background: transparent;
+        font: inherit;
+        font-size: clamp(11px, 1.5vw, 14px);
+        line-height: 1.3;
+        font-weight: 500;
+        color: var(--ink);
+        text-align: center;
+        padding: 4px;
+      }
+
+      .hint {
+        margin-top: 18px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--ink-soft);
+      }
+
+      .hint kbd {
+        font-family: ui-monospace, "SF Mono", monospace;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-size: 11px;
+        margin: 0 2px;
+      }
+
+      .celebrate {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 50;
+      }
+
+      @keyframes fall {
+        to {
+          transform: translateY(110vh) rotate(720deg);
+          opacity: 0;
+        }
+      }
+
+      .confetti {
+        position: absolute;
+        top: -20px;
+        width: 10px;
+        height: 14px;
+        border-radius: 2px;
+        animation: fall linear forwards;
+      }
+
+
+      @media (max-width: 560px) {
+        .wrap {
+          padding: 32px 14px 48px;
+        }
+        .grid {
+          gap: 8px;
+          padding: 10px;
+          border-radius: 20px;
+        }
+        .cell {
+          border-radius: 12px;
+          padding: 6px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="eyebrow">things to happen this year</p>
+        <h1>Bingo <span class="year">2026</span></h1>
+        <p class="subtitle">
+          Twenty-five things to chase this year. Click any tile to mark it
+          done. Double-click to edit.
+        </p>
+      </header>
+
+      <div class="toolbar">
+        <div class="progress" aria-label="Progress">
+          <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+          <span class="progress-text" id="progressText">0 / 25</span>
+        </div>
+        <button class="btn danger" id="resetBtn">Reset board</button>
+      </div>
+
+      <div class="grid" id="grid"></div>
+
+      <p class="hint">
+        <kbd>click</kbd> to toggle done · <kbd>double-click</kbd> to edit ·
+        saved in your browser
+      </p>
+    </div>
+
+    <div class="celebrate" id="celebrate" aria-hidden="true"></div>
+
+    <script>
+      const GRID_SIZE = 25;
+      const FREE_INDEX = 12;
+      const STORAGE_KEY = "bingo-2026-v2";
+
+      const WINNING_LINES = (() => {
+        const lines = [];
+        for (let r = 0; r < 5; r++) {
+          lines.push([0, 1, 2, 3, 4].map((c) => r * 5 + c));
+        }
+        for (let c = 0; c < 5; c++) {
+          lines.push([0, 1, 2, 3, 4].map((r) => r * 5 + c));
+        }
+        lines.push([0, 6, 12, 18, 24]);
+        lines.push([4, 8, 12, 16, 20]);
+        return lines;
+      })();
+
+      function lineKey(line) {
+        return line.join(",");
+      }
+
+      const defaultItems = [
+        "Niagara Falls",
+        "New place in the US",
+        "Ski / snowboard for the first time",
+        "Salsa class in my basement",
+        "Present in front of my company",
+        "Grow 1 plant",
+        "Babysit for a day",
+        "Psychedelic meditation retreat",
+        "New country in Europe",
+        "Commune month",
+        "Plan a family date ♥",
+        "175 lbs deadlift / squat",
+        "Bingo day ✦",
+        "50 mile bike ride",
+        "Broadway show",
+        "5 Substack posts",
+        "Host 5 dinners / events in NYC",
+        "Make $500 from the internet (w/ Claude)",
+        "Read 50 books",
+        "Food tour!! (w/ friends)",
+        "Plan a date for Chris",
+        "Laser tag",
+        "New country in Asia",
+        "Do 1 pull-up!",
+        "Go to a martial art class",
+      ];
+
+      const state = load();
+
+      function load() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed.cells) && parsed.cells.length === GRID_SIZE) {
+              return parsed;
+            }
+          }
+        } catch (e) {}
+        return {
+          cells: defaultItems.map((text) => ({ text, done: false })),
+          claimedLines: [],
+        };
+      }
+
+      if (!Array.isArray(state.claimedLines)) state.claimedLines = [];
+
+      function save() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      }
+
+      const grid = document.getElementById("grid");
+      const fill = document.getElementById("fill");
+      const progressText = document.getElementById("progressText");
+      const resetBtn = document.getElementById("resetBtn");
+      const celebrate = document.getElementById("celebrate");
+
+      function render() {
+        grid.innerHTML = "";
+        state.cells.forEach((cell, i) => {
+          const el = document.createElement("div");
+          el.className = "cell";
+          if (i === FREE_INDEX && !cell.done) el.classList.add("free");
+          if (cell.done) el.classList.add("done");
+          el.dataset.index = i;
+
+          const text = document.createElement("div");
+          text.className = "text";
+          if (cell.text) {
+            text.textContent = cell.text;
+          } else {
+            text.textContent = "tap to add…";
+            text.classList.add("placeholder");
+          }
+          el.appendChild(text);
+          grid.appendChild(el);
+        });
+        updateProgress();
+      }
+
+      function updateCell(i) {
+        const cell = state.cells[i];
+        const el = grid.children[i];
+        if (!el) return;
+        el.classList.toggle("done", !!cell.done);
+        el.classList.toggle("free", i === FREE_INDEX && !cell.done);
+        const textEl = el.querySelector(".text");
+        if (textEl && !el.querySelector("textarea")) {
+          if (cell.text) {
+            textEl.textContent = cell.text;
+            textEl.classList.remove("placeholder");
+          } else {
+            textEl.textContent = "tap to add…";
+            textEl.classList.add("placeholder");
+          }
+        }
+      }
+
+      grid.addEventListener("click", (e) => {
+        if (e.target.tagName === "TEXTAREA") return;
+        const cellEl = e.target.closest(".cell");
+        if (!cellEl || !grid.contains(cellEl)) return;
+        const i = Number(cellEl.dataset.index);
+        if (Number.isNaN(i)) return;
+        const cell = state.cells[i];
+        if (!cell.text) {
+          startEdit(cellEl, i);
+          return;
+        }
+        cell.done = !cell.done;
+        const newBingos = reconcileBingos();
+        save();
+        updateCell(i);
+        updateProgress();
+        if (cell.done) burstFromCell(i);
+        if (newBingos.length > 0) bigCelebrate();
+      });
+
+      function isLineComplete(line) {
+        return line.every((idx) => state.cells[idx].done);
+      }
+
+      function reconcileBingos() {
+        const completedKeys = new Set(
+          WINNING_LINES.filter(isLineComplete).map(lineKey),
+        );
+        state.claimedLines = state.claimedLines.filter((k) =>
+          completedKeys.has(k),
+        );
+        const claimedSet = new Set(state.claimedLines);
+        const newBingos = [];
+        for (const line of WINNING_LINES) {
+          const k = lineKey(line);
+          if (completedKeys.has(k) && !claimedSet.has(k)) {
+            state.claimedLines.push(k);
+            newBingos.push(line);
+          }
+        }
+        return newBingos;
+      }
+
+      grid.addEventListener("dblclick", (e) => {
+        const cellEl = e.target.closest(".cell");
+        if (!cellEl || !grid.contains(cellEl)) return;
+        e.preventDefault();
+        const i = Number(cellEl.dataset.index);
+        if (Number.isNaN(i)) return;
+        startEdit(cellEl, i);
+      });
+
+      function startEdit(el, i) {
+        if (el.querySelector("textarea")) return;
+        const ta = document.createElement("textarea");
+        ta.value = state.cells[i].text || "";
+        ta.maxLength = 80;
+        const textEl = el.querySelector(".text");
+        if (textEl) textEl.style.visibility = "hidden";
+        el.appendChild(ta);
+        ta.focus();
+        ta.select();
+
+        let finished = false;
+        const finish = (commit) => {
+          if (finished) return;
+          finished = true;
+          if (commit) {
+            state.cells[i].text = ta.value.trim();
+            save();
+          }
+          ta.remove();
+          if (textEl) textEl.style.visibility = "";
+          updateCell(i);
+        };
+        ta.addEventListener("blur", () => finish(true));
+        ta.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            ta.blur();
+          } else if (e.key === "Escape") {
+            ta.value = state.cells[i].text || "";
+            finish(false);
+          }
+        });
+      }
+
+      function updateProgress() {
+        const total = GRID_SIZE;
+        const done = state.cells.filter((c) => c.done).length;
+        const pct = (done / total) * 100;
+        fill.style.width = pct + "%";
+        progressText.textContent = `${done} / ${total}`;
+      }
+
+      function allDone() {
+        return state.cells.every((c) => c.done);
+      }
+
+      const colors = ["#e7546f", "#f4a93b", "#b66bff", "#5fc9c1", "#ff8a9b"];
+
+      function burstFromCell(i) {
+        const cellEl = grid.children[i];
+        const rect = cellEl.getBoundingClientRect();
+        for (let k = 0; k < 14; k++) {
+          spawnConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2, 1.4);
+        }
+      }
+
+      function bigCelebrate() {
+        for (let k = 0; k < 120; k++) {
+          spawnConfetti(
+            Math.random() * window.innerWidth,
+            -20 - Math.random() * 200,
+            3 + Math.random() * 2,
+          );
+        }
+      }
+
+      function spawnConfetti(x, y, duration) {
+        const c = document.createElement("div");
+        c.className = "confetti";
+        c.style.left = x + "px";
+        c.style.top = y + "px";
+        c.style.background = colors[Math.floor(Math.random() * colors.length)];
+        c.style.transform = `translate(${(Math.random() - 0.5) * 60}px, 0) rotate(${Math.random() * 360}deg)`;
+        c.style.animationDuration = duration + "s";
+        celebrate.appendChild(c);
+        setTimeout(() => c.remove(), duration * 1000 + 100);
+      }
+
+      resetBtn.addEventListener("click", () => {
+        if (!confirm("Reset the whole board? This clears your progress.")) return;
+        localStorage.removeItem(STORAGE_KEY);
+        state.cells = defaultItems.map((text) => ({ text, done: false }));
+        state.claimedLines = [];
+        save();
+        render();
+      });
+
+      render();
+      reconcileBingos();
+    </script>
+  </body>
+</html>
