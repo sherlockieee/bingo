@@ -23,6 +23,7 @@ export async function GET(request) {
 /**
  * Body: { year, cells: { [index]: cell } } merges the given cells into that tab.
  * With `replace: true`, `cells` must be a full array and replaces the tab.
+ * With `remove: true`, deletes the tab and its photos.
  * Returns the whole board after the write.
  */
 export async function POST(request) {
@@ -30,12 +31,20 @@ export async function POST(request) {
   if (!id) return withCors(Response.json({ error: "Bad board id" }, { status: 400 }));
 
   const body = await request.json().catch(() => null);
-  if (!body || !isTabName(body.year) || !body.cells || typeof body.cells !== "object") {
+  const hasCells = body?.cells && typeof body.cells === "object";
+  if (!body || !isTabName(body.year) || (!hasCells && body.remove !== true)) {
     return withCors(Response.json({ error: "Bad body" }, { status: 400 }));
   }
 
   const board = await readBoard(id);
   const before = Object.hasOwn(board.years, body.year) ? board.years[body.year].cells : [];
+
+  if (body.remove === true) {
+    delete board.years[body.year];
+    await writeBoard(id, board);
+    await deleteDroppedPhotos(before, []);
+    return withCors(Response.json(board, { headers: NO_STORE }));
+  }
   const after = body.replace ? [] : [...before];
   if (!body.replace) after.length = GRID_SIZE;
 

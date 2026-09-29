@@ -1229,7 +1229,8 @@
 
       shareBtn.addEventListener("click", async () => {
         const url = location.href;
-        if (navigator.share) {
+        const isPhone = matchMedia("(pointer: coarse)").matches;
+        if (isPhone && navigator.share) {
           try {
             await navigator.share({ title: document.title, url });
           } catch (e) {}
