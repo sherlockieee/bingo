@@ -283,6 +283,164 @@
         padding: 4px;
       }
 
+      .cell.has-photo {
+        background-size: cover;
+        background-position: center;
+        border-color: transparent;
+        align-items: flex-end;
+      }
+
+      .cell.has-photo::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          to top,
+          rgba(43, 29, 42, 0.7),
+          rgba(43, 29, 42, 0.05) 65%
+        );
+      }
+
+      .cell.done.has-photo::before {
+        background: linear-gradient(
+          to top,
+          rgba(231, 84, 111, 0.65),
+          rgba(255, 179, 122, 0)
+        );
+      }
+
+      .cell.has-photo .text {
+        position: relative;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      }
+
+      .edit-btn {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        z-index: 1;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 24px;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+
+      .cell:hover .edit-btn,
+      .edit-btn:focus-visible,
+      .cell.has-note .edit-btn {
+        opacity: 1;
+      }
+
+      .cell.has-note .edit-btn {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      @media (hover: none) {
+        .edit-btn {
+          opacity: 0.8;
+        }
+      }
+
+      .detail {
+        width: min(440px, calc(100vw - 32px));
+        border: none;
+        border-radius: 20px;
+        padding: 22px;
+        color: var(--ink);
+        background: var(--card);
+        box-shadow: var(--shadow-md);
+      }
+
+      .detail::backdrop {
+        background: rgba(43, 29, 42, 0.45);
+      }
+
+      .detail label {
+        display: block;
+        margin: 14px 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink-soft);
+      }
+
+      .detail input[type="text"],
+      .detail textarea {
+        width: 100%;
+        font: inherit;
+        font-size: 14px;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 9px 12px;
+        background: var(--bg-1);
+      }
+
+      .detail textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .detail .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--ink);
+      }
+
+      .detail .check input {
+        margin: 0;
+      }
+
+      .photo-preview {
+        height: 150px;
+        border-radius: 12px;
+        border: 1px dashed var(--line);
+        background-color: var(--bg-1);
+        background-size: cover;
+        background-position: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ink-soft);
+        font-size: 13px;
+      }
+
+      .photo-preview:not(.empty) span {
+        display: none;
+      }
+
+      .photo-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .detail-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 20px;
+      }
+
+      .btn.primary {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
       .hint {
         margin-top: 18px;
         text-align: center;
@@ -362,10 +520,41 @@
       <div class="grid" id="grid"></div>
 
       <p class="hint">
-        <kbd>click</kbd> to toggle done · <kbd>double-click</kbd> to edit ·
-        saved in your browser
+        <kbd>click</kbd> to toggle done · <kbd>double-click</kbd> to rename ·
+        <kbd>✎</kbd> to add a photo or note · saved in this browser
       </p>
     </div>
+
+    <dialog class="detail" id="detail">
+      <form id="detailForm">
+        <label for="detailTitle">Tile</label>
+        <input type="text" id="detailTitle" maxlength="80" />
+
+        <label class="check">
+          <input type="checkbox" id="detailDone" /> Done
+        </label>
+
+        <label for="detailNote">What happened</label>
+        <textarea id="detailNote" maxlength="1000"></textarea>
+
+        <label>Photo (becomes the tile background)</label>
+        <div class="photo-preview empty" id="photoPreview">
+          <span>No photo yet</span>
+        </div>
+        <div class="photo-actions">
+          <button type="button" class="btn" id="photoPick">Choose photo</button>
+          <button type="button" class="btn danger" id="photoRemove" hidden>
+            Remove
+          </button>
+          <input type="file" id="photoInput" accept="image/*" hidden />
+        </div>
+
+        <div class="detail-actions">
+          <button type="button" class="btn" id="detailCancel">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
 
     <div class="celebrate" id="celebrate" aria-hidden="true"></div>
 
@@ -449,6 +638,69 @@
       const resetBtn = document.getElementById("resetBtn");
       const celebrate = document.getElementById("celebrate");
 
+      const DB_NAME = "bingo-2026-photos";
+      const PHOTO_STORE = "photos";
+      const PHOTO_MAX_EDGE = 900;
+      const photoUrls = new Map();
+
+      function openDb() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = () => req.result.createObjectStore(PHOTO_STORE);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function loadPhotos() {
+        try {
+          const db = await openDb();
+          return await new Promise((resolve, reject) => {
+            const store = db.transaction(PHOTO_STORE).objectStore(PHOTO_STORE);
+            const keys = store.getAllKeys();
+            const blobs = store.getAll();
+            blobs.onsuccess = () =>
+              resolve(new Map(keys.result.map((k, i) => [k, blobs.result[i]])));
+            blobs.onerror = () => reject(blobs.error);
+          });
+        } catch (e) {
+          return new Map();
+        }
+      }
+
+      async function writePhotos(fn) {
+        const db = await openDb();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(PHOTO_STORE, "readwrite");
+          fn(tx.objectStore(PHOTO_STORE));
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      function setPhotoUrl(i, blob) {
+        clearPhotoUrl(i);
+        photoUrls.set(i, URL.createObjectURL(blob));
+      }
+
+      function clearPhotoUrl(i) {
+        const url = photoUrls.get(i);
+        if (url) URL.revokeObjectURL(url);
+        photoUrls.delete(i);
+      }
+
+      async function downscale(file) {
+        const bitmap = await createImageBitmap(file, {
+          imageOrientation: "from-image",
+        });
+        const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+      }
+
       function render() {
         grid.innerHTML = "";
         state.cells.forEach((cell, i) => {
@@ -456,7 +708,21 @@
           el.className = "cell";
           if (i === FREE_INDEX && !cell.done) el.classList.add("free");
           if (cell.done) el.classList.add("done");
+          if (cell.note) el.classList.add("has-note");
+          const photoUrl = photoUrls.get(i);
+          if (photoUrl) {
+            el.classList.add("has-photo");
+            el.style.backgroundImage = `url("${photoUrl}")`;
+          }
           el.dataset.index = i;
+
+          const editBtn = document.createElement("button");
+          editBtn.className = "edit-btn";
+          editBtn.type = "button";
+          editBtn.title = "Add a photo or note";
+          editBtn.setAttribute("aria-label", "Edit tile details");
+          editBtn.textContent = "✎";
+          el.appendChild(editBtn);
 
           const text = document.createElement("div");
           text.className = "text";
@@ -496,6 +762,10 @@
         if (!cellEl || !grid.contains(cellEl)) return;
         const i = Number(cellEl.dataset.index);
         if (Number.isNaN(i)) return;
+        if (e.target.closest(".edit-btn")) {
+          openDetail(i);
+          return;
+        }
         const cell = state.cells[i];
         if (!cell.text) {
           startEdit(cellEl, i);
@@ -621,17 +891,116 @@
         setTimeout(() => c.remove(), duration * 1000 + 100);
       }
 
-      resetBtn.addEventListener("click", () => {
-        if (!confirm("Reset the whole board? This clears your progress.")) return;
+      const detail = document.getElementById("detail");
+      const detailForm = document.getElementById("detailForm");
+      const detailTitle = document.getElementById("detailTitle");
+      const detailDone = document.getElementById("detailDone");
+      const detailNote = document.getElementById("detailNote");
+      const photoPreview = document.getElementById("photoPreview");
+      const photoInput = document.getElementById("photoInput");
+      const photoPick = document.getElementById("photoPick");
+      const photoRemove = document.getElementById("photoRemove");
+      const detailCancel = document.getElementById("detailCancel");
+
+      let editing = null;
+
+      function showPreview(url) {
+        photoPreview.style.backgroundImage = url ? `url("${url}")` : "";
+        photoPreview.classList.toggle("empty", !url);
+        photoRemove.hidden = !url;
+      }
+
+      function releasePreviewUrl() {
+        if (editing && editing.previewUrl) URL.revokeObjectURL(editing.previewUrl);
+        if (editing) editing.previewUrl = null;
+      }
+
+      function openDetail(i) {
+        const cell = state.cells[i];
+        editing = { i, newPhoto: null, removePhoto: false, previewUrl: null };
+        detailTitle.value = cell.text || "";
+        detailDone.checked = !!cell.done;
+        detailNote.value = cell.note || "";
+        showPreview(photoUrls.get(i) || null);
+        detail.showModal();
+      }
+
+      photoPick.addEventListener("click", () => photoInput.click());
+
+      photoInput.addEventListener("change", async () => {
+        const file = photoInput.files[0];
+        photoInput.value = "";
+        if (!file || !editing) return;
+        try {
+          const blob = await downscale(file);
+          releasePreviewUrl();
+          editing.newPhoto = blob;
+          editing.removePhoto = false;
+          editing.previewUrl = URL.createObjectURL(blob);
+          showPreview(editing.previewUrl);
+        } catch (e) {
+          alert("Couldn't read that photo. Try a JPEG or PNG.");
+        }
+      });
+
+      photoRemove.addEventListener("click", () => {
+        releasePreviewUrl();
+        editing.newPhoto = null;
+        editing.removePhoto = true;
+        showPreview(null);
+      });
+
+      detailCancel.addEventListener("click", () => detail.close());
+      detail.addEventListener("close", () => {
+        releasePreviewUrl();
+        editing = null;
+      });
+
+      detailForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const { i, newPhoto, removePhoto } = editing;
+        try {
+          if (newPhoto) {
+            await writePhotos((store) => store.put(newPhoto, i));
+            setPhotoUrl(i, newPhoto);
+          } else if (removePhoto) {
+            await writePhotos((store) => store.delete(i));
+            clearPhotoUrl(i);
+          }
+        } catch (err) {
+          alert("Couldn't save the photo in this browser.");
+          return;
+        }
+        const cell = state.cells[i];
+        cell.text = detailTitle.value.trim();
+        cell.done = detailDone.checked;
+        cell.note = detailNote.value.trim();
+        const newBingos = reconcileBingos();
+        save();
+        render();
+        detail.close();
+        if (cell.done) burstFromCell(i);
+        if (newBingos.length > 0) bigCelebrate();
+      });
+
+      resetBtn.addEventListener("click", async () => {
+        if (!confirm("Reset the whole board? This clears your progress, notes and photos.")) return;
         localStorage.removeItem(STORAGE_KEY);
         state.cells = defaultItems.map((text) => ({ text, done: false }));
         state.claimedLines = [];
+        [...photoUrls.keys()].forEach(clearPhotoUrl);
+        try {
+          await writePhotos((store) => store.clear());
+        } catch (e) {}
         save();
         render();
       });
 
-      render();
-      reconcileBingos();
+      loadPhotos().then((blobs) => {
+        blobs.forEach((blob, i) => setPhotoUrl(i, blob));
+        render();
+        reconcileBingos();
+      });
     </script>
   </body>
 </html>
