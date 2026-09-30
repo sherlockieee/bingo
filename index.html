@@ -337,7 +337,11 @@
       }
 
       .cell.done.has-photo::before {
-        background: none;
+        background: linear-gradient(
+          to top,
+          rgba(0, 0, 0, 0.45) 0%,
+          rgba(0, 0, 0, 0) 45%
+        );
       }
 
       .cell.has-photo .text {
